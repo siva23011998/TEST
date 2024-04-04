@@ -1,0 +1,142 @@
+locals {
+  dmarc_value = "v=DMARC1; p=reject; fo=1; ri=3600; rua=mailto:mc-graw-hill-education@rua.agari.com; ruf=mailto:mc-graw-hill-education@ruf.agari.com"
+  # Map of DNS zones to corresponding records and their attributes
+  # Special syntax of `records` property in this map for ALAIS type: zone_id first, then actual alias target
+  cinchlearning_zone_records = local.account_type != "prod" ? {} : {
+    "cinchlearning.com" = [
+      { name = "*.cinchlearning.com", type = "ALIAS", records = [module.aws_alb_http.load_balancer.zone_id, module.aws_alb_http.load_balancer.dns_name] },
+      { name = "cinchlearning.com", type = "ALIAS", records = [module.aws_alb_http.load_balancer.zone_id, module.aws_alb_http.load_balancer.dns_name] },
+      # { name = "api-qa.cinchlearning.com.", type = "A", records = ["204.8.131.246"] }, # Doesn't work
+      # { name = "basil.cinchlearning.com.", type = "A", records = ["184.72.117.171"] }, # Doesn't work
+      # { name = "blue.cinchlearning.com.", type = "A", records = ["198.45.24.58"] }, # Doesn't work
+      # { name = "cloud.cinchlearning.com", type = "A", records = ["184.72.117.212"] }, # Doesn't work
+      # { name = "qa.cloud.cinchlearning.com", type = "A", records = ["184.72.117.171"] }, # Doesn't work
+      # { name = "sage.cinchlearning.com", type = "A", records = ["184.72.117.212"] },
+      # { name = "staging.blue.cinchlearning.com", type = "A", records = ["198.45.24.58"] },
+      # { name = "staging.cloud.cinchlearning.com", type = "A", records = ["184.72.117.212"] },
+      # Email-related records
+      { name = "cinchlearning.com", type = "MX", records = ["10 mail.eppg.com"] }, # 104.47.66.10 resolves to mail-mw2nam120010.inbound.protection.outlook.com
+      { name = "_dmarc.cinchlearning.com", type = "TXT", records = [local.dmarc_value] },
+      { name = "cinc._domainkey.cinchlearning.com", type = "TXT", records = ["v=DKIM1; k=rsa; p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDjMBzMB7vqUfoOdLgvj/yihKi5ancW0CF7mkiWV0GL3INLbMLBKWX9CBb+YMlCHMLErKT/0dSqattWikb8gqL+nz4wwInIPK8ENCxRRrSxpMYO+tE+SkLNVPRj2gujJMREgB9UD/DxxIXUcqpeqlM3d/Hp4jyzgS/2cgeuhcRtgwIDAQAB;"] },
+      # TODO: figure out if we need to change IPs
+      { name = "cinchlearning.com", type = "TXT", records = ["v=spf1 mx ip4:192.243.80.160/28 ip4:192.243.88.160/28 -all"] },
+      # Test record which points to Amazon infra even while other records point to DC.
+      { name = "${module.aws_resource_tags.account}.cinchlearning.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] }, # for testing purposes
+      # In ACM cert
+      { name = "amt.cinchlearning.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] },
+      { name = "api.cinchlearning.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] },
+      { name = "math.cinchlearning.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] },
+      { name = "science.cinchlearning.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] },
+      { name = "texas.cinchlearning.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] },
+      { name = "tx-science.cinchlearning.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] },
+      { name = "media.cinchlearning.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] },
+      #{ name = "media.cinchlearning.com", type = "CNAME", records = ["cdiwlegacymedia-17-84-155384178.us-east-1.elb.amazonaws.com"] }, # Comment this to remove when ready to cutover in prod.
+      { name = "www.cinchlearning.com", type = "CNAME", records = ["cinchlearning.com"] },
+      # end of In ACM cert
+    ],
+    "cinchmath.com" = [
+      # Simply redirects HTTP to HTTPS
+      { name = "*.cinchmath.com", type = "ALIAS", records = [module.aws_alb_http.load_balancer.zone_id, module.aws_alb_http.load_balancer.dns_name] },
+      { name = "cinchmath.com", type = "ALIAS", records = [module.aws_alb_http.load_balancer.zone_id, module.aws_alb_http.load_balancer.dns_name] },
+      # Useless? Seems to point outside of MHE, with 1 html file, served by *.niit-mts.com  ????
+      # { name = "cloud.cinchmath.com", type = "A", records = ["184.73.238.109"] },
+      # { name = "qa.cloud.cinchmath.com", type = "A", records = ["67.202.12.136"] }, # Doesn't work
+      # Email-related records
+      { name = "cinchmath.com", type = "MX", records = ["10 mail.eppg.com"] }, # 104.47.66.10 resolves to mail-mw2nam120010.inbound.protection.outlook.com
+      { name = "_dmarc.cinchmath.com", type = "TXT", records = [local.dmarc_value] },
+      { name = "cinchmath.com", type = "TXT", records = ["v=spf1 mx -all"] },
+      # Test record which points to Amazon infra even while other records point to DC.
+      { name = "${module.aws_resource_tags.account}.cinchmath.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] }, # for testing purposes
+    ],
+    "cinchmathematics.com" = [
+      # HTTP redirects to HTTPS, but is served by cinchlearning.com DigiCert cert in DC
+      { name = "*.cinchmathematics.com", type = "ALIAS", records = [module.aws_alb_http.load_balancer.zone_id, module.aws_alb_http.load_balancer.dns_name] }, # 302 https://math.cinchlearning.com
+      { name = "cinchmathematics.com", type = "ALIAS", records = [module.aws_alb_http.load_balancer.zone_id, module.aws_alb_http.load_balancer.dns_name] },   # 302 https://math.cinchlearning.com
+      # Useless? Seems to point outside of MHE, with 1 html file, served by *.niit-mts.com  ????
+      # { name = "cloud.cinchmathematics.com", type = "A", records = ["184.73.238.109"] },
+      # { name = "media.cinchmathematics.com", type = "A", records = ["198.45.25.44"] }, # Doesn't work
+      # { name = "mediapath.cinchmathematics.com", type = "A", records = ["198.45.25.44"] }, # Doesn't work
+      # { name = "staging.cinchmathematics.com", type = "A", records = ["198.45.22.232"] },# Doesn't work
+      # Email-related records
+      { name = "cinchmathematics.com", type = "MX", records = ["10 mail.eppg.com"] }, # 104.47.66.10 resolves to mail-mw2nam120010.inbound.protection.outlook.com
+      { name = "_dmarc.cinchmathematics.com", type = "TXT", records = [local.dmarc_value] },
+      { name = "cinchmathematics.com", type = "TXT", records = ["v=spf1 mx -all"] },
+      # Test record which points to Amazon infra even while other records point to DC.
+      { name = "${module.aws_resource_tags.account}.cinchmathematics.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] }, # for testing purposes
+    ],
+    "cinchscience.com" = [
+      { name = "cinchscience.com", type = "ALIAS", records = [module.aws_alb_http.load_balancer.zone_id, module.aws_alb_http.load_balancer.dns_name] }, # 302 https://science.cinchlearning.com
+      { name = "www.cinchscience.com.", type = "CNAME", records = ["cinchscience.com"] },                                                               # 302 https://science.cinchlearning.com
+      # Email-related records
+      { name = "_dmarc.cinchscience.com", type = "TXT", records = [local.dmarc_value] },
+      { name = "cinchscience.com", type = "TXT", records = ["v=spf1 mx -all"] },
+      # Test record which points to Amazon infra even while other records point to DC.
+      { name = "${module.aws_resource_tags.account}.cinchscience.com", type = "CNAME", records = [module.aws_alb_http.load_balancer.dns_name] }, # for testing purposes
+    ]
+  }
+
+  # 1-dimensional Array of modified objects having additional 'zone' property.
+  cinchlearning_zone_records_flat = flatten([
+    # 2-dimensional Array of modified objects having additional 'zone' property. One array for each of the map's key.
+    for key, values in local.cinchlearning_zone_records : [
+      # Injecting zone key to the map so the map contains all required info for Route53 record, Example:
+      # { 
+      #   name = "*.cinchlearning.com", 
+      #   type = "CNAME", 
+      #   records = [module.aws_alb_http.load_balancer.dns_name]
+      #   # This property is added: zone = "cinchlearning.com"
+      #   zone = aws_route53_zone.cinch[key].zone_id
+      # },
+      for value in values : merge(value, { zone = aws_route53_zone.cinch[key].zone_id })
+    ]
+  ])
+}
+
+# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route53_zone
+resource "aws_route53_zone" "cinch" {
+  for_each          = toset(keys(local.cinchlearning_zone_records))
+  name              = each.key
+  comment           = "Managed by Terraform"
+  delegation_set_id = data.terraform_remote_state.init.outputs.aws_route53_delegation_set.id
+  force_destroy     = false
+  tags              = local.filtered_common_tags
+}
+
+# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route53_record
+resource "aws_route53_record" "cinch_all" {
+  for_each = {
+    # 1-dimensional Array of modified objects having additional 'zone' property.
+    for item in local.cinchlearning_zone_records_flat :
+    # Resulting map key is unique to help avoid domino effect
+    "${item.name}-${item.type}" => item if item.type != "ALIAS"
+  }
+  # allow_overwrite = true # only when you know the consequences of what you're doing.
+  name    = each.value.name
+  records = each.value.records
+  type    = each.value.type
+  zone_id = each.value.zone
+  ttl     = "300"
+}
+
+# Separate resource for managing just aliases because they have a little bit different syntax:
+#   no `TTL` or `records` properties, official record type is 'A'. Additional `alias` block
+# https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/route53_record
+resource "aws_route53_record" "cinch_alias" {
+  for_each = {
+    # 1-dimensional Array of modified objects having additional 'zone' property.
+    for item in local.cinchlearning_zone_records_flat :
+    # Resulting map key is unique to help avoid domino effect
+    "${item.name}-${item.type}" => item if item.type == "ALIAS"
+  }
+  # allow_overwrite = true # only when you know the consequences of what you're doing.
+  name    = each.value.name
+  type    = "A"
+  zone_id = each.value.zone
+
+  alias {
+    # Custom ordering of records for the ALIAS type
+    name                   = each.value.records[1]
+    zone_id                = each.value.records[0]
+    evaluate_target_health = false
+  }
+}

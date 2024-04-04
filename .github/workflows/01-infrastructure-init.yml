@@ -1,0 +1,58 @@
+# Init Terraform infrastructure
+# Run the terraform plan and apply for the Terraform code located in this repository in the path init/
+#
+# To use this workflow, you must configure the following GHA Jobs secrets: 
+# ARTIFACTORY_RO_SERVICE_PWD, ARTIFACTORY_RO_SERVICE_USER
+# AWS_ACCESS_KEY_ID_NONPROD, AWS_SECRET_ACCESS_KEY_NONPROD, NR_API_KEY_NONPROD
+# AWS_ACCESS_KEY_ID_PROD, AWS_SECRET_ACCESS_KEY_PROD, NR_API_KEY_PROD
+# SVC_TERRAFORM_ORG_PEM, SVC_TERRAFORM_ORG_PUB
+
+name: 01 Init
+on:
+  workflow_dispatch:
+  push:
+    branches: 
+      - main
+      - aws-change/**
+    paths:
+      - '.github/workflows/01-infrastructure-init.yml'
+      - '.github/workflows/terraform-*.yml'
+      - "init/**"
+      - "*.sh"
+      - ".env"
+      - "!**/*.md"
+jobs:
+  plan_nonprod:
+    name: init
+    uses: ./.github/workflows/terraform-plan.yml
+    with:
+      folder_layer: ./init
+      environment: nonprod
+    secrets: inherit
+
+  apply_nonprod:
+    name: init
+    needs: plan_nonprod
+    uses: ./.github/workflows/terraform-apply.yml
+    with:
+      folder_layer: ./init
+      environment: nonprod
+    secrets: inherit
+  
+  plan_prod:
+    name: init
+    needs: apply_nonprod
+    uses: ./.github/workflows/terraform-plan.yml
+    with:
+      folder_layer: ./init
+      environment: prod
+    secrets: inherit
+
+  apply_prod:
+    name: init
+    needs: plan_prod
+    uses: ./.github/workflows/terraform-apply.yml
+    with:
+      folder_layer: ./init
+      environment: prod
+    secrets: inherit

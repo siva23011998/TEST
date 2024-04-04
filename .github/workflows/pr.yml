@@ -1,0 +1,46 @@
+# Run Terraform plan for all layers on Pull Request to main
+#
+# To use this workflow, you must configure the following GHA Jobs secrets: 
+# ARTIFACTORY_RO_SERVICE_PWD, ARTIFACTORY_RO_SERVICE_USER
+# AWS_ACCESS_KEY_ID_NONPROD, AWS_SECRET_ACCESS_KEY_NONPROD, NR_API_KEY_NONPROD
+# AWS_ACCESS_KEY_ID_PROD, AWS_SECRET_ACCESS_KEY_PROD, NR_API_KEY_PROD
+# SVC_TERRAFORM_ORG_PEM, SVC_TERRAFORM_ORG_PUB
+
+name: 00 Pull Request
+on:
+  pull_request:
+    branches: [main]
+jobs:
+  plan_init:
+    name: init
+    strategy:
+      matrix:
+        environment: [nonprod, prod]
+    uses: ./.github/workflows/terraform-plan.yml
+    with:
+      folder_layer: ./init
+      environment: ${{ matrix.environment }}
+    secrets: inherit
+  plan_shared:
+    name: shared
+    needs: plan_init
+    strategy:
+      matrix:
+        environment: [nonprod, prod]
+    uses: ./.github/workflows/terraform-plan.yml
+    with:
+      folder_layer: ./shared
+      environment: ${{ matrix.environment }}
+    secrets: inherit
+
+  plan_sdlc:
+    name: SDLC
+    needs: plan_shared
+    strategy:
+      matrix:
+        environment: [dev, demo, qalv, qastg, prod]
+    uses: ./.github/workflows/terraform-plan.yml
+    with:
+      folder_layer: ./SDLC
+      environment: ${{ matrix.environment }}
+    secrets: inherit

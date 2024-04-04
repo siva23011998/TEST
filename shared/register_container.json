@@ -1,0 +1,33 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Action": [
+                "ec2:*",
+                "autoscaling:DescribeAutoScalingGroups",
+                "ecs:ListClusters",
+                "ecs:ListContainerInstances",
+                "ecs:ListTaskDefinitions",
+                "ecs:ListServices",
+                "ecs:DescribeTaskDefinition",
+                "ecs:DescribeContainerInstances",
+                "ecs:DescribeTasks",
+                "ecs:DescribeServices",
+                "ecs:CreateCluster",
+                "ecs:RegisterTaskDefinition",
+                "ecs:RegisterContainerInstance",
+                "ecs:DeregisterContainerInstance",
+                "ecs:DiscoverPollEndpoint",
+                "ecs:Submit*",
+                "ecs:*Attributes",
+                "ecs:Poll",
+                "ecs:StartTask",
+                "ecs:StopTask",
+                "ecs:RunTask",
+                "ecs:StartTelemetrySession"
+            ],
+            "Effect": "Allow",
+            "Resource": "*"
+        }
+    ]
+}

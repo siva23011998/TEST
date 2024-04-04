@@ -1,0 +1,267 @@
+## CW LOGS
+
+# resource "aws_cloudwatch_log_group" "snapshot_lambda" {
+#   count = local.snapshot_enabled_vpc_count
+
+#   name              = "/aws/lambda/${local.snapshot_resource_name}"
+#   tags              = var.tags
+#   retention_in_days = var.s3_snapshots_logs_retention
+# }
+
+## LAMBDA IAM ROLE
+
+data "aws_iam_policy_document" "snapshot_lambda_assume" {
+  #count = local.snapshot_enabled_vpc_count
+
+  statement {
+    actions = [
+      "sts:AssumeRole",
+    ]
+
+    principals {
+      identifiers = ["lambda.amazonaws.com"]
+      type        = "Service"
+    }
+  }
+}
+
+data "aws_iam_policy_document" "snapshot_lambda" {
+  #count = local.snapshot_enabled_vpc_count
+
+  statement {
+    effect    = "Allow"
+    actions   = ["iam:PassRole"]
+    resources = [aws_iam_role.index_snapshot_role.arn]
+  }
+
+  statement {
+    effect    = "Allow"
+    actions   = ["es:ESHttp*"]
+    resources = ["arn:aws:es:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:domain/${aws_opensearch_domain.opensearch.domain_name}/*", ]
+  }
+
+  #   statement {
+  #     effect = "Allow"
+
+  #     actions = [
+  #       "logs:CreateLogGroup",
+  #       "logs:CreateLogStream",
+  #       "logs:PutLogEvents",
+  #     ]
+
+  #     resources = [
+  #       aws_cloudwatch_log_group.snapshot_lambda[0].arn,
+  #       "${aws_cloudwatch_log_group.snapshot_lambda[0].arn}:*",
+  #     ]
+  #   }
+
+  statement {
+    effect = "Allow"
+
+    actions = [
+      "ec2:CreateNetworkInterface",
+      "ec2:DescribeNetworkInterfaces",
+      "ec2:DeleteNetworkInterface",
+      "ec2:AssignPrivateIpAddresses",
+      "ec2:UnassignPrivateIpAddresses",
+    ]
+
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role" "snapshot_lambda" {
+  #count = local.snapshot_enabled_vpc_count
+
+  name               = "${local.snapshot_resource_name}-lambda"
+  description        = "Role for the Elasticsearh snapshot Lambda function"
+  tags               = var.tags
+  assume_role_policy = data.aws_iam_policy_document.snapshot_lambda_assume.json
+}
+
+resource "aws_iam_role_policy" "snapshot_lambda" {
+  #count = local.snapshot_enabled_vpc_count
+
+  role   = aws_iam_role.snapshot_lambda.id
+  policy = data.aws_iam_policy_document.snapshot_lambda.json
+}
+
+## SG
+
+resource "aws_security_group" "snapshot_lambda" {
+  #count = local.snapshot_enabled_vpc_count
+
+  name        = local.snapshot_resource_name
+  description = "Security group for the ${local.snapshot_resource_name}-snapshot Lambda function"
+  vpc_id      = var.vpc_id
+  tags        = var.tags
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_security_group_rule" "snapshot_lambda_egress" {
+  #count = local.snapshot_enabled_vpc_count
+
+  type                     = "egress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = aws_security_group.snapshot_lambda.id
+  source_security_group_id = data.aws_security_group.opensearch_sg.id
+}
+
+resource "aws_security_group_rule" "snapshot_lambda_ingress" {
+  #count = local.snapshot_enabled_vpc_count
+
+  type                     = "ingress"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = data.aws_security_group.opensearch_sg.id
+  source_security_group_id = aws_security_group.snapshot_lambda.id
+}
+
+## LAMBDA
+
+## Enable to (re-)build the zip
+# data "archive_file" "snapshot_lambda" {
+#   count = local.snapshot_enabled_vpc_count
+
+#   type        = "zip"
+#   output_path = "${path.module}/snapshot_lambda.zip"
+#   source_dir  = "${path.module}/functions/"
+# }
+
+## Backup Snapshot lambda function
+resource "aws_lambda_function" "snapshot_lambda" {
+  count = local.backup_snapshot_enabled_count
+
+  function_name = local.snapshot_resource_name
+  description   = "Function to create S3-based OpenSearch snapshots"
+  tags          = var.tags
+
+  runtime          = "python3.8"
+  handler          = "snapshot.lambda_handler"
+  filename         = "${path.module}/functions/snapshot_lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/functions/snapshot_lambda.zip")
+  role             = aws_iam_role.snapshot_lambda[0].arn
+  timeout          = var.s3_snapshots_lambda_timeout
+
+  environment {
+    variables = {
+      BUCKET     = aws_s3_bucket.snapshot[0].id
+      HOST       = data.aws_elasticsearch_domain.es_domain.endpoint
+      REGION     = data.aws_region.current.name
+      REPOSITORY = var.repository_name
+      RETENTION  = var.s3_snapshots_retention
+      ROLE_ARN   = aws_iam_role.snapshot_create[0].arn
+    }
+  }
+
+  dynamic "vpc_config" {
+    for_each = try([var.vpc_id], [])
+
+    content {
+      security_group_ids = aws_security_group.snapshot_lambda.*.id
+      subnet_ids         = var.subnet_ids
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.snapshot_lambda]
+}
+## Restore Snapshot lambda function
+resource "aws_lambda_function" "restore_snapshot_lambda" {
+  count = local.restore_snapshot_enabled_count
+
+  function_name = local.snapshot_resource_name
+  description   = "Function to restore S3-based OpenSearch snapshots"
+  tags          = var.tags
+
+  runtime          = "python3.8"
+  handler          = "snapshot.lambda_handler"
+  filename         = "${path.module}/restore_function/restore_snapshot_lambda.zip"
+  source_code_hash = filebase64sha256("${path.module}/restore_function/restore_snapshot_lambda.zip")
+  role             = aws_iam_role.snapshot_lambda[0].arn
+  timeout          = var.s3_snapshots_lambda_timeout
+
+  environment {
+    variables = {
+      BUCKET     = aws_s3_bucket.snapshot[0].id
+      HOST       = data.aws_elasticsearch_domain.es_domain.endpoint
+      REGION     = data.aws_region.current.name
+      REPOSITORY = var.repository_name
+      RETENTION  = var.s3_snapshots_retention
+      ROLE_ARN   = aws_iam_role.snapshot_create[0].arn
+    }
+  }
+
+  dynamic "vpc_config" {
+    for_each = try([var.vpc_id], [])
+
+    content {
+      security_group_ids = aws_security_group.snapshot_lambda.*.id
+      subnet_ids         = var.subnet_ids
+    }
+  }
+
+  depends_on = [aws_cloudwatch_log_group.snapshot_lambda]
+}
+
+resource "aws_cloudwatch_event_rule" "snapshot_lambda" {
+  count = local.snapshot_enabled_vpc_count
+
+  name                = local.snapshot_resource_name
+  tags                = var.tags
+  schedule_expression = var.s3_snapshots_schedule_expression
+}
+
+resource "aws_cloudwatch_event_target" "snapshot_lambda" {
+  count = local.backup_snapshot_enabled_count
+
+  rule      = aws_cloudwatch_event_rule.snapshot_lambda[0].name
+  target_id = local.snapshot_resource_name
+  arn       = aws_lambda_function.snapshot_lambda[0].arn
+}
+resource "aws_cloudwatch_event_target" "restore_snapshot_lambda" {
+  count = local.restore_snapshot_enabled_count
+
+  rule      = aws_cloudwatch_event_rule.snapshot_lambda[0].name
+  target_id = local.snapshot_resource_name
+  arn       = aws_lambda_function.restore_snapshot_lambda[0].arn
+}
+
+resource "aws_lambda_permission" "snapshot_lambda" {
+  count = local.backup_snapshot_enabled_count
+
+  statement_id  = "AllowExecutionFromCloudWatch"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.snapshot_lambda[0].arn
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.snapshot_lambda[0].arn
+}
+resource "aws_lambda_permission" "restore_snapshot_lambda" {
+  count = local.restore_snapshot_enabled_count
+
+  statement_id  = "AllowExecutionFromCloudWatch"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.restore_snapshot_lambda[0].arn
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.snapshot_lambda[0].arn
+}
+
+# OpenSearch Domain name
+data "aws_elasticsearch_domain" "es_domain" {
+  #arn = var.es_domain_arn
+  domain_name = var.es_domain_name
+}
+variable "security_group_id" {}
+
+data "aws_security_group" "opensearch_sg" {
+  count = var.vpc_id != null ? 1 : 0
+  id    = var.security_group_id
+  /* filter {
+    name   = "Security group name"
+    values = ["test-opensearch-elasticsearch"]
+  } */
+}

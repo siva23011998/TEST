@@ -1,0 +1,84 @@
+# Terraform plan
+# Run the terraform plan for the directory specified
+#
+# To use this workflow, you must configure the following GHA Jobs secrets: 
+# ARTIFACTORY_RO_SERVICE_PWD, ARTIFACTORY_RO_SERVICE_USER
+# AWS_INFRA_IAM_ROLE_ARN_NONPROD, NR_API_KEY_NONPROD
+# AWS_INFRA_IAM_ROLE_ARN_PROD, NR_API_KEY_PROD
+# SVC_TERRAFORM_ORG_PEM, SVC_TERRAFORM_ORG_PUB
+#
+
+name: Terraform apply
+on:
+  workflow_call:
+    secrets:
+      ARTIFACTORY_RO_SERVICE_USER:
+        required: true
+      ARTIFACTORY_RO_SERVICE_PWD:
+        required: true
+      AWS_INFRA_IAM_ROLE_ARN_NONPROD:
+        required: true
+      NR_API_KEY_NONPROD:
+        required: true
+      AWS_INFRA_IAM_ROLE_ARN_PROD:
+        required: true
+      NR_API_KEY_PROD:
+        required: true
+      SVC_TERRAFORM_ORG_PEM:
+        required: true
+      SVC_TERRAFORM_ORG_PUB:
+        required: true
+    inputs:
+      folder_layer:
+        description: 'Terraform folder layer'
+        required: true
+        type: string
+      environment:
+        description: 'Environment'
+        required: true
+        type: string
+
+# Variables available to all jobs
+env:
+  CI: true
+  DRY_RUN: false # for Terraform apply enabled
+  AWS_ROLE_ARN: "${{ inputs.environment == 'prod' && secrets.AWS_INFRA_IAM_ROLE_ARN_PROD || secrets.AWS_INFRA_IAM_ROLE_ARN_NONPROD }}"
+  # nonprod
+  NR_API_KEY_NONPROD: ${{ secrets.NR_API_KEY_NONPROD }}
+  # prod
+  NR_API_KEY_PROD: ${{ secrets.NR_API_KEY_PROD }}
+
+jobs:
+  apply:
+    name: apply-${{ inputs.environment }}
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: [self-hosted, Standard, ubuntu, X64]
+    environment: apply-approval-${{ inputs.environment }}
+    container:
+      image: repo.mhe.io/docker/terraform/build-tools:1.9.1
+      credentials:
+        username: ${{ secrets.ARTIFACTORY_RO_SERVICE_USER }}
+        password: ${{ secrets.ARTIFACTORY_RO_SERVICE_PWD }}
+    steps:
+      - name: Configure AWS Credentials
+        uses: actions/configure-aws-credentials@v4.0.1
+        with:
+          aws-region: us-east-1
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          role-session-name: CSInfraDeploy
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.ref }}
+      - name: Write SSH keys to pull shared modules
+        run: |
+          set -o nounset -o pipefail -o errexit; exec 2>&1
+          mkdir -p /root/.ssh/
+          echo "${{ secrets.SVC_TERRAFORM_ORG_PEM }}" > /root/.ssh/id_rsa
+          echo "${{ secrets.SVC_TERRAFORM_ORG_PUB }}" > /root/.ssh/id_rsa.pub
+          chmod -f 0600 /root/.ssh/id_rsa /root/.ssh/id_rsa.pub
+      - name: Terraform apply
+        run: |
+          set -o nounset -o pipefail -o errexit; exec 2>&1
+          EXEC_DIR_ON_TF=${{ inputs.folder_layer }} environment=${{ inputs.environment }} ./tf.sh

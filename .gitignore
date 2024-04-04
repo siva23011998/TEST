@@ -1,0 +1,23 @@
+# Local .terraform directories
+**/.terraform/*
+terraform\.d/*
+
+# No state files in VCS. They should be stored in a remote location.
+*.tfstate
+*.tfstate.*
+
+.tool-versions
+
+# Temporary files
+**/terraform.plan*
+*debug*.log
+*_v2*
+*.log
+
+# Junk
+.DS_Store
+
+# Any locally saved secrets
+**/.env.local
+shared/aws-ecs-cp-swap
+*.hcl
